@@ -30,6 +30,18 @@
   // document.head polyfill for the benefit of Firefox 3.6
   document.head = document.head || document.getElementsByTagName('head')[0];
 
+  /* handle animation without DOSing the user's browser */
+  var requestAnimFrame = (function() {
+    return  window.requestAnimationFrame       || 
+            window.webkitRequestAnimationFrame || 
+            window.mozRequestAnimationFrame    || 
+            window.oRequestAnimationFrame      || 
+            window.msRequestAnimationFrame     || 
+            function(/* function */ callback, /* DOMElement */ element){
+              window.setTimeout(callback, 1000 / 60);
+            };
+  })();
+
   // Typed Arrays: fallback to WebGL arrays or Native JS arrays if unavailable
   function setupTypedArray(name, fallback) {
     // Check if TypedArray exists, and use if so.
@@ -1977,6 +1989,7 @@
         normalMode = PConstants.NORMAL_MODE_AUTO,
         curFrameRate = 60,
         curMsPerFrame = 1000/curFrameRate,
+        frameRateIsUsed = false,
         curCursor = PConstants.ARROW,
         oldCursor = curElement.style.cursor,
         curShape = PConstants.POLYGON,
@@ -8196,7 +8209,9 @@
     p.noLoop = function() {
       doLoop = false;
       loopStarted = false;
-      clearInterval(looping);
+      if(frameRateIsUsed) {
+      	clearInterval(looping);
+      }
       curSketch.onPause();
     };
 
@@ -8215,19 +8230,41 @@
 
       timeSinceLastFPS = Date.now();
       framesSinceLastFPS = 0;
-
-      looping = window.setInterval(function() {
-        try {
-          curSketch.onFrameStart();
-          p.redraw();
-          curSketch.onFrameEnd();
-        } catch(e_loop) {
-          window.clearInterval(looping);
-          throw e_loop;
-        }
-      }, curMsPerFrame);
+	  
+	  if(frameRateIsUsed) {
+	      looping = window.setInterval(function() {
+	        try {
+	          curSketch.onFrameStart();
+	          p.redraw();
+	          curSketch.onFrameEnd();
+	        } catch(e_loop) {
+	          window.clearInterval(looping);
+	          throw e_loop;
+	        }
+	      }, curMsPerFrame);
+	   } else {
+	      var then = Date.now();
+          function loopFunction() {
+             if (doLoop) {
+                var now = Date.now();
+                var timeElapsed = now - then;
+                if (timeElapsed >= curMsPerFrame || curMsPerFrame < 33){
+            	  then = now;
+             	  try {
+              		p.redraw();
+            	  } catch(e_loop) {
+              		throw e_loop;
+            	  }
+          		}
+          		requestAnimFrame(loopFunction, p.canvas);
+	   	  	 }
+	   	  }
+	  }
       doLoop = true;
       loopStarted = true;
+      if(!frameRateIsUsed){
+      	loopFunction();
+      }
       curSketch.onLoop();
     };
 
@@ -8246,7 +8283,7 @@
     p.frameRate = function(aRate) {
       curFrameRate = aRate;
       curMsPerFrame = 1000 / curFrameRate;
-
+	  frameRateIsUsed = true;
       // clear and reset interval
       if (doLoop) {
         p.noLoop();
@@ -8290,7 +8327,11 @@
     * @returns none
     */
     p.exit = function() {
-      window.clearInterval(looping);
+      if(frameRateIsUsed) {
+        window.clearInterval(looping);
+      } else {
+      	doLoop = false;
+      }
 
       removeInstance(p.externals.canvas.id);
 
