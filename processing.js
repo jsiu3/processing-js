@@ -38,7 +38,7 @@
             window.oRequestAnimationFrame      || 
             window.msRequestAnimationFrame     || 
             function(/* function */ callback, /* DOMElement */ element){
-              window.setTimeout(callback, 1000 / 60);
+              window.setTimeout(callback, curMsPerFrame);
             };
   })();
 
@@ -8238,23 +8238,23 @@
 	          throw e_loop;
 	        }
 	      }, curMsPerFrame);
-	   } else {
+	  } else {
 	      var then = Date.now();
-          function loopFunction() {
-             if (doLoop) {
-                var now = Date.now();
-                var timeElapsed = now - then;
-                if (timeElapsed >= curMsPerFrame || curMsPerFrame < 33){
-            	  then = now;
-             	  try {
-              		p.redraw();
-            	  } catch(e_loop) {
-              		throw e_loop;
-            	  }
-          		}
-          		requestAnimFrame(loopFunction, p.canvas);
-	   	  	 }
-	   	  }
+              function loopFunction() {
+                if (doLoop) {
+                    var now = Date.now();
+                    var timeElapsed = now - then;
+                    if (timeElapsed >= curMsPerFrame || curMsPerFrame < 33){
+                      then = now;
+                      try {
+                            p.redraw();
+                      } catch(e_loop) {
+                            throw e_loop;
+                      }
+                    }
+                    requestAnimFrame(loopFunction, p.canvas);
+                }
+              }
 	  }
       doLoop = true;
       loopStarted = true;
