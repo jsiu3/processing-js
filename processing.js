@@ -8292,18 +8292,12 @@
   	      }
   	    }, curMsPerFrame);
   	  } else {
-  	    var then = Date.now();
         function loopFunction() {
           if (doLoop) {
-            var now = Date.now();
-            var timeElapsed = now - then;
-            if (timeElapsed >= curMsPerFrame || curMsPerFrame < 33){
-              then = now;
-              try {
-                p.redraw();
-              } catch(e_loop) {
-                throw e_loop;
-              }
+            try {
+              p.redraw();
+            } catch(e_loop) {
+              throw e_loop;
             }
             requestAnimFrame(loopFunction, p.canvas);
           }
