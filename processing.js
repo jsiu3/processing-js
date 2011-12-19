@@ -32,15 +32,15 @@
 
   /* handle animation without DOSing the user's browser */
   var requestAnimFrame = (function() {
-    return  window.requestAnimationFrame       || 
-            window.webkitRequestAnimationFrame || 
-            window.mozRequestAnimationFrame    || 
-            window.oRequestAnimationFrame      || 
-            window.msRequestAnimationFrame     || 
-            function(/* function */ callback, /* DOMElement */ element){
-              window.setTimeout(callback, curMsPerFrame);
-            };
-  })();
+    return window.requestAnimationFrame       || 
+           window.webkitRequestAnimationFrame || 
+           window.mozRequestAnimationFrame    || 
+           window.oRequestAnimationFrame      || 
+           window.msRequestAnimationFrame     || 
+           function(/* function */ callback, /* DOMElement */ element){
+             window.setTimeout(callback, curMsPerFrame);
+           };
+  }());
 
   // Typed Arrays: fallback to WebGL arrays or Native JS arrays if unavailable
   function setupTypedArray(name, fallback) {
@@ -8280,35 +8280,35 @@
       timeSinceLastFPS = Date.now();
       framesSinceLastFPS = 0;
 	  
-	  if(frameRateIsUsed) {
-	      looping = window.setInterval(function() {
-	        try {
-	          curSketch.onFrameStart();
-	          p.redraw();
-	          curSketch.onFrameEnd();
-	        } catch(e_loop) {
-	          window.clearInterval(looping);
-	          throw e_loop;
-	        }
-	      }, curMsPerFrame);
-	  } else {
-	      var then = Date.now();
-              function loopFunction() {
-                if (doLoop) {
-                    var now = Date.now();
-                    var timeElapsed = now - then;
-                    if (timeElapsed >= curMsPerFrame || curMsPerFrame < 33){
-                      then = now;
-                      try {
-                            p.redraw();
-                      } catch(e_loop) {
-                            throw e_loop;
-                      }
-                    }
-                    requestAnimFrame(loopFunction, p.canvas);
-                }
+  	  if(frameRateIsUsed) {
+  	    looping = window.setInterval(function() {
+  	      try {
+  	        curSketch.onFrameStart();
+    	      p.redraw();
+  	        curSketch.onFrameEnd();
+  	      } catch(e_loop) {
+  	        window.clearInterval(looping);
+  	        throw e_loop;
+  	      }
+  	    }, curMsPerFrame);
+  	  } else {
+  	    var then = Date.now();
+        function loopFunction() {
+          if (doLoop) {
+            var now = Date.now();
+            var timeElapsed = now - then;
+            if (timeElapsed >= curMsPerFrame || curMsPerFrame < 33){
+              then = now;
+              try {
+                p.redraw();
+              } catch(e_loop) {
+                throw e_loop;
               }
-	  }
+            }
+            requestAnimFrame(loopFunction, p.canvas);
+          }
+        }
+  	  }
       doLoop = true;
       loopStarted = true;
       if(!frameRateIsUsed){
