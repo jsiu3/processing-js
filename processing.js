@@ -8326,7 +8326,7 @@
     p.frameRate = function(aRate) {
       curFrameRate = aRate;
       curMsPerFrame = 1000 / curFrameRate;
-	  frameRateIsUsed = true;
+	    frameRateIsUsed = true;
       // clear and reset interval
       if (doLoop) {
         p.noLoop();
