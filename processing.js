@@ -1568,7 +1568,6 @@
     var cfmFont = pfont.getCSSDefinition(emQuad+"px", "normal"),
         ctx = canvas.getContext("2d");
     ctx.font = cfmFont;
-    pfont.context2d = ctx;
 
     // Size the canvas using a string with common max-ascent and max-descent letters.
     // Changing the canvas dimensions resets the context, so we must reset the font.
@@ -1629,9 +1628,16 @@
       }
     }
     document.body.removeChild(leadDiv);
+
+    // if we're caching, cache the context used for this pfont
+    if (pfont.caching) {
+      return ctx;
+    }
   }
 
-  // Defines system (non-SVG) font.
+  /**
+   * Constructor for a system or from-file (non-SVG) font.
+   */
   function PFont(name, size) {
     // according to the P5 API, new PFont() is legal (albeit completely useless)
     if (name === undef) {
@@ -1689,15 +1695,22 @@
     }
     // Calculate the ascent/descent/leading value based on
     // how the browser renders this font.
-    this.context2d = null;
-    computeFontMetrics(this);
+    this.context2d = computeFontMetrics(this);
     this.css = this.getCSSDefinition();
-    this.context2d.font = this.css;
+    if (this.context2d) {
+      this.context2d.font = this.css;
+    }
   }
+  
+  /**
+   * regulates whether or not we're caching the canvas
+   * 2d context for quick text width computation. 
+   */
+  PFont.prototype.caching = true;
 
   /**
-  * This function generates the CSS "font" string for this PFont
-  */
+   * This function generates the CSS "font" string for this PFont
+   */
   PFont.prototype.getCSSDefinition = function(fontSize, lineHeight) {
     if(fontSize===undef) {
       fontSize = this.size + "px";
@@ -1711,44 +1724,89 @@
   };
 
   /**
-  * We cannot rely on there being a 2d context available,
-  * because we support OPENGL sketches, and canvas3d has
-  * no "measureText" function in the API.
-  */
+   * Rely on the cached context2d measureText function.
+   */
   PFont.prototype.measureTextWidth = function(string) {
     return this.context2d.measureText(string).width;
   };
 
   /**
-  * Global "loaded fonts" list, internal to PFont
-  */
-  PFont.PFontCache = {};
-
-  /**
-  * This function acts as single access point for getting and caching
-  * fonts across all sketches handled by an instance of Processing.js
-  */
-  PFont.get = function(fontName, fontSize) {
-    var cache = PFont.PFontCache;
-    var idx = fontName+"/"+fontSize;
-    if (!cache[idx]) {
-      cache[idx] = new PFont(fontName, fontSize);
-    }
-    return cache[idx];
+   * FALLBACK FUNCTION -- replaces Pfont.prototype.measureTextWidth
+   * when the font cache becomes too large. This contructs a new
+   * canvas 2d context object for calling measureText on.
+   */
+  PFont.prototype.measureTextWidthFallback = function(string) {
+    var canvas = document.createElement("canvas"),
+        ctx = canvas.getContext("2d");
+    ctx.font = this.css;
+    return ctx.measureText(string).width;
   };
 
   /**
-  * Lists all standard fonts. Due to browser limitations, this list is
-  * not the system font list, like in P5, but the CSS "genre" list.
-  */
+   * Global "loaded fonts" list, internal to PFont
+   */
+  PFont.PFontCache = { length: 0 };
+
+  /**
+   * This function acts as single access point for getting and caching
+   * fonts across all sketches handled by an instance of Processing.js
+   */
+  PFont.get = function(fontName, fontSize) {
+    // round fontSize to one decimal point
+    fontSize = ((fontSize*10)+0.5|0)/10; 
+    var cache = PFont.PFontCache,
+        idx = fontName+"/"+fontSize;
+    if (!cache[idx]) {
+      cache[idx] = new PFont(fontName, fontSize);
+      cache.length++;
+
+      // FALLBACK FUNCTIONALITY 1:
+      // If the cache has become large, switch over from full caching
+      // to caching only the static metrics for each new font request.
+      if (cache.length === 50) {
+        PFont.prototype.measureTextWidth = PFont.prototype.measureTextWidthFallback;
+        PFont.prototype.caching = false;
+        // clear contexts stored for each cached font
+        var entry;
+        for (entry in cache) {
+          if (entry !== "length") {
+            cache[entry].context2d = null;
+          }
+        }
+        return new PFont(fontName, fontSize);
+      }
+
+      // FALLBACK FUNCTIONALITY 2:
+      // If the cache has become too large, switch off font caching entirely.
+      if (cache.length === 400) {
+        PFont.PFontCache = {};
+        PFont.get = PFont.getFallback;
+        return new PFont(fontName, fontSize);
+      }
+    }
+    return cache[idx];
+  };
+  
+  /**
+   * FALLBACK FUNCTION -- replaces PFont.get when the font cache
+   * becomes too large. This function bypasses font caching entirely.
+   */
+  PFont.getFallback = function(fontName, fontSize) {
+    return new PFont(fontName, fontSize);
+  };
+
+  /**
+   * Lists all standard fonts. Due to browser limitations, this list is
+   * not the system font list, like in P5, but the CSS "genre" list.
+   */
   PFont.list = function() {
     return ["sans-serif", "serif", "monospace", "fantasy", "cursive"];
   };
 
   /**
-  * Loading external fonts through @font-face rules is handled by PFont,
-  * to ensure fonts loaded in this way are globally available.
-  */
+   * Loading external fonts through @font-face rules is handled by PFont,
+   * to ensure fonts loaded in this way are globally available.
+   */
   PFont.preloading = {
     // template element used to compare font sizes
     template: {},
@@ -1860,7 +1918,6 @@
       this.fontList.push(element);
     }
   };
-
 
   // add to the default scope
   defaultScope.PFont = PFont;
@@ -3470,7 +3527,7 @@
       else if (arguments.length === 2) {
         if (typeof arguments[1] === 'string') {
           if (arguments[1].indexOf(".svg") > -1) { //its a filename
-            this.element = new p.XMLElement(null, arguments[1]);
+            this.element = new p.XMLElement(p, arguments[1]);
             // set values to their defaults according to the SVG spec
             this.vertexCodes         = [];
             this.vertices            = [];
@@ -4697,7 +4754,7 @@
      * @param {String} systemID  the system ID of the XML data where the element starts
      * @param {Integer }lineNr   the line in the XML data where the element starts
      */
-    var XMLElement = p.XMLElement = function() {
+    var XMLElement = p.XMLElement = function(selector, uri, sysid, line) {
       this.attributes = [];
       this.children   = [];
       this.fullName   = null;
@@ -4709,27 +4766,22 @@
       this.systemID   = "";
       this.type = "ELEMENT";
 
-      if (arguments.length === 4) {
-        this.fullName   = arguments[0] || "";
-        if (arguments[1]) {
-          this.name = arguments[1];
-        } else {
-          var index = this.fullName.indexOf(':');
-          if (index >= 0) {
-            this.name = this.fullName.substring(index + 1);
+      if (selector) {
+        if (typeof selector === "string") {
+          if (uri === undef && selector.indexOf("<")>-1) {
+            // load XML from text string
+            this.parse(selector);
           } else {
-            this.name = this.fullName;
+            // XMLElement(fullname, namespace, sysid, line) format
+            this.fullName = selector;
+            this.namespace = uri;
+            this.systemId = sysid;
+            this.lineNr = line;
           }
+        } else {
+          // XMLElement(this,file) format
+          this.parse(uri);
         }
-        this.namespace = arguments[1];
-        this.lineNr    = arguments[3];
-        this.systemID  = arguments[2];
-      }
-      else if ((arguments.length === 2 && arguments[1].indexOf(".") > -1) ) {
-        // filename or svg xml element
-        this.parse(arguments[arguments.length -1]);
-      } else if (arguments.length === 1 && typeof arguments[0] === "string"){
-        this.parse(arguments[0]);
       }
     };
     /**
@@ -4780,7 +4832,7 @@
        *
        * @return {XMLElement} the new element and its children elements
        */
-      parseChildrenRecursive: function (parent , elementpath){
+      parseChildrenRecursive: function (parent, elementpath){
         var xmlelement,
           xmlattribute,
           tmpattrib,
@@ -4791,7 +4843,7 @@
           this.name     = elementpath.nodeName;
           xmlelement    = this;
         } else { // this element has a parent
-          xmlelement         = new XMLElement(elementpath.localName, elementpath.nodeName, "", "");
+          xmlelement         = new XMLElement(elementpath.nodeName);
           xmlelement.parent  = parent;
         }
 
@@ -4833,11 +4885,11 @@
        * @param {String} systemID   the system ID of the XML data where the element starts
        * @param {int} lineNr    the line in the XML data where the element starts
        */
-      createElement: function () {
-        if (arguments.length === 2) {
-          return new XMLElement(arguments[0], arguments[1], null, null);
+      createElement: function (fullname, namespaceuri, sysid, line) {
+        if (sysid === undef) {
+          return new XMLElement(fullname, namespaceuri);
         }
-        return new XMLElement(arguments[0], arguments[1], arguments[2], arguments[3]);
+        return new XMLElement(fullname, namespaceuri, sysid, line);
       },
       /**
        * @member XMLElement
@@ -4886,7 +4938,7 @@
           return false;
         }
         var i, j;
-        if (this.name !== other.getLocalName()) { return false; }
+        if (this.fullName !== other.fullName) { return false; }
         if (this.attributes.length !== other.getAttributeCount()) { return false; }
         // attributes may be ordered differently
         if (this.attributes.length !== other.attributes.length) { return false; }
@@ -5093,19 +5145,19 @@
        *
        * @return {XMLElement} the element
        */
-      getChild: function (){
-        if (typeof arguments[0]  === "number") {
-          return this.children[arguments[0]];
+      getChild: function (selector) {
+        if (typeof selector === "number") {
+          return this.children[selector];
         }
-        if (arguments[0].indexOf('/') !== -1) { // path was given
-          this.getChildRecursive(arguments[0].split("/"), 0);
-          return null;
+        if (selector.indexOf('/') !== -1) {
+          // path traversal is required
+          return this.getChildRecursive(selector.split("/"), 0);
         }
         var kid, kidName;
         for (var i = 0, j = this.getChildCount(); i < j; i++) {
           kid = this.getChild(i);
           kidName = kid.getName();
-          if (kidName !== null && kidName === arguments[0]) {
+          if (kidName !== null && kidName === selector) {
               return kid;
           }
         }
@@ -5126,7 +5178,7 @@
        */
       getChildren: function(){
         if (arguments.length === 1) {
-          if (typeof arguments[0]  === "number") {
+          if (typeof arguments[0] === "number") {
             return this.getChild( arguments[0]);
           }
           if (arguments[0].indexOf('/') !== -1) { // path was given
@@ -5167,16 +5219,17 @@
        * @return {XMLElement} matching element or null if no match
        */
       getChildRecursive: function (items, offset) {
-        var kid, kidName;
+        // terminating clause: we are the requested candidate
+        if (offset === items.length) {
+          return this;
+        }
+        // continuation clause
+        var kid, kidName, matchName = items[offset];
         for(var i = 0, j = this.getChildCount(); i < j; i++) {
             kid = this.getChild(i);
             kidName = kid.getName();
-            if (kidName !== null && kidName === items[offset]) {
-              if (offset === items.length-1) {
-                return kid;
-              }
-              offset += 1;
-              return kid.getChildRecursive(items, offset);
+            if (kidName !== null && kidName === matchName) {
+              return kid.getChildRecursive(items, offset+1);
             }
         }
         return null;
@@ -5412,7 +5465,7 @@
         if(this.type==="TEXT") { return this.content; }
 
         // real XMLElements
-        var tagstring = (this.namespace !== "" && this.namespace !== this.name ? this.namespace + ":" : "") + this.name;
+        var tagstring = this.fullName;
         var xmlstring =  "<" + tagstring;
         var a,c;
 
@@ -10413,7 +10466,7 @@
       view.apply(modelView.array());
       view.mult(pos, pos);
 
-      // Instead of calling p.color, we do the calculations ourselves to 
+      // Instead of calling p.color, we do the calculations ourselves to
       // reduce property lookups.
       var col = color$4(r, g, b, 0);
       var normalizedCol = [ ((col & PConstants.RED_MASK) >>> 16) / 255,
@@ -10478,7 +10531,7 @@
         mvm[2] * nx + mvm[6] * ny + mvm[10] * nz
       ];
 
-      // Instead of calling p.color, we do the calculations ourselves to 
+      // Instead of calling p.color, we do the calculations ourselves to
       // reduce property lookups.
       var col = color$4(r, g, b, 0);
       var normalizedCol = [ ((col & PConstants.RED_MASK) >>> 16) / 255,
@@ -10548,7 +10601,7 @@
 
     Drawing3D.prototype.lightSpecular = function(r, g, b) {
 
-      // Instead of calling p.color, we do the calculations ourselves to 
+      // Instead of calling p.color, we do the calculations ourselves to
       // reduce property lookups.
       var col = color$4(r, g, b, 0);
       var normalizedCol = [ ((col & PConstants.RED_MASK) >>> 16) / 255,
@@ -10621,7 +10674,7 @@
       view.apply(modelView.array());
       view.mult(pos, pos);
 
-      // Instead of calling p.color, we do the calculations ourselves to 
+      // Instead of calling p.color, we do the calculations ourselves to
       // reduce property lookups.
       var col = color$4(r, g, b, 0);
       var normalizedCol = [ ((col & PConstants.RED_MASK) >>> 16) / 255,
@@ -10711,7 +10764,7 @@
           mvm[2] * nx + mvm[6] * ny + mvm[10] * nz
       ];
 
-      // Instead of calling p.color, we do the calculations ourselves to 
+      // Instead of calling p.color, we do the calculations ourselves to
       // reduce property lookups.
       var col = color$4(r, g, b, 0);
       var normalizedCol = [ ((col & PConstants.RED_MASK) >>> 16) / 255,
@@ -10807,7 +10860,7 @@
      */
     p.camera = function(eyeX, eyeY, eyeZ, centerX, centerY, centerZ, upX, upY, upZ) {
       if (eyeX === undef) {
-        // Workaround if createGraphics is used. 
+        // Workaround if createGraphics is used.
         cameraX = p.width / 2;
         cameraY = p.height / 2;
         cameraZ = cameraY / Math.tan(cameraFOV / 2);
@@ -13736,7 +13789,7 @@
         br = tl;
         bl = tl;
       }
-      var halfWidth = width / 2, 
+      var halfWidth = width / 2,
           halfHeight = height / 2;
       if (tl > halfWidth || tl > halfHeight) {
         tl = Math.min(halfWidth, halfHeight);
@@ -14597,7 +14650,7 @@
           return this.imageData;
         }
 
-        var canvasData = getCanvasData(this.imageData);
+        var canvasData = getCanvasData(this.sourceImg);
         return canvasData.context.getImageData(0, 0, this.width, this.height);
       },
 
@@ -17327,11 +17380,6 @@
     // Keyboard Events
     //////////////////////////////////////////////////////////////////////////
 
-    // Get the DOM element if string was passed
-    if (typeof curElement === "string") {
-      curElement = document.getElementById(curElement);
-    }
-
     // In order to catch key events in a canvas, it needs to be "specially focusable",
     // by assigning it a tabindex. If no tabindex is specified on-page, set this to 0.
     if (!curElement.getAttribute("tabindex")) {
@@ -19789,9 +19837,18 @@
     }
 
     // also process all <script>-indicated sketches, if there are any
-    var scripts = document.getElementsByTagName('script');
-    var s, source, instance;
-    for (s = 0; s < scripts.length; s++) {
+    var s, last, source, instance,
+        nodelist = document.getElementsByTagName('script'),
+        scripts=[];
+
+    // snapshot the DOM, as the nodelist is only a DOM view, and is
+    // updated instantly when a script element is added or removed.
+    for (s = nodelist.length - 1; s >= 0; s--) {
+      scripts.push(nodelist[s]);
+    }
+
+    // iterate over all script elements to see if they contain Processing code
+    for (s = 0, last = scripts.length; s < last; s++) {
       var script = scripts[s];
       if (!script.getAttribute) {
         continue;
